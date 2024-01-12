@@ -300,10 +300,10 @@ def calculate_opening():
     print("opening:", mx_op_ind)
     print("land:", mx_land)
     print("empty neighs:", mx_empty_neighs)
-    with open(os.path.join(curdir, "opening_statistics2.txt"), "a") as f:
+    with open(os.path.join(curdir, "opening_statistics2.log"), "a") as f:
         f.write(str(mx_op_ind) + '\n')
     if mx_land <= 18:
-        with open(os.path.join(curdir, "bad_spawns.txt"), "a") as f:
+        with open(os.path.join(curdir, "bad_spawns.log"), "a") as f:
             f.write(f"land: {mx_land}, {GG.gamemap.replay_url}\n")
     print('Opening calculation time:', time.time() - tic)
 
