@@ -9,7 +9,7 @@ def make_move(bot, gamemap):
     elif gamemap.turn == 2:
         utils.init(bot, gamemap)
         opening.init()
-        opening.calculate_opening()
+        opening.get_opening()
         return
     elif gamemap.turn in GG.opening_turns:
         opening.start_opening()

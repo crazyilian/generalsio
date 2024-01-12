@@ -24,6 +24,10 @@ def get_land(moves):
     return sum([move[1] for move in moves if move is not None]) + 1
 
 
+def get_number_lines(moves):
+    return len(moves) - (len(moves) > 0 and moves[0] is None)
+
+
 def check_correct(moves):
     if get_sides(moves) > 4:
         return False
@@ -43,14 +47,19 @@ def check_correct(moves):
 
 
 with open(os.path.join(curdir, 'parsed_openings.json')) as f:
-    all_moves = json.load(f)
+    parsed_openings = json.load(f)
 
-for i in range(len(all_moves)):  # make it tuples
-    all_moves[i] = tuple(tuple(move) for move in all_moves[i])
-    if not check_correct(all_moves[i]) and check_correct((None,) + all_moves[i]):
-        all_moves[i] = (None,) + all_moves[i]
+# make parsed_openings tuples and add 1 wait before opening if needed
+correct_openings = []
+for moves in parsed_openings:
+    moves = tuple(tuple(move) for move in moves)
+    if check_correct(moves):
+        correct_openings.append(moves)
+    elif check_correct((None,) + moves):
+        correct_openings.append((None,) + moves)
 
-for moves in all_moves:
+# add up to 3-turn suffixes to all openings
+for moves in correct_openings:
     turns = get_turns(moves)
     side = get_sides(moves)
     suffixes = {
@@ -62,18 +71,17 @@ for moves in all_moves:
         for suffix in suffixes[turns]:
             new_moves = moves + suffix
             if check_correct(new_moves):
-                all_moves.append(new_moves)
+                correct_openings.append(new_moves)
 
-filtered_moves = []
-for moves in all_moves:
-    if not check_correct(moves):  # can be incorrect if army was merged in some cell
-        continue
-    land = get_land(moves)
+# filter only useful openings, try adding opening prefix if opening was not added
+filtered_openings = []
+for moves in correct_openings:
     while True:
         while len(moves) > 0 and (moves[-1] is None or moves[-1][1] == 0):
             moves = moves[:-1]
         if len(moves) == 0:
             break
+        land = get_land(moves)
         side = get_sides(moves)
         min_inside = get_min_inside(moves)
         if len(moves) <= 6 and (land >= 23 or
@@ -83,70 +91,69 @@ for moves in all_moves:
                                 (land >= 21 and min_inside >= 5 and side == 2) or
                                 (land >= 22 and min_inside >= 3 and side == 2) or
                                 (land >= 20 and min_inside >= 7 and side == 2)):
-            filtered_moves.append(moves)
+            filtered_openings.append(moves)
             break
-        else:
-            land -= moves[-1][1]
-            moves = moves[:-1]
+        moves = moves[:-1]
 
-filtered_moves = list(set(filtered_moves))
+# remove duplicate openings
+filtered_openings = list(set(filtered_openings))
 
-useful_moves = []
-for i in range(len(filtered_moves)):
-    moves1 = filtered_moves[i]
-    for j in range(len(filtered_moves)):
+# remove opening if it is a prefix of any other opening
+openings = []
+for i in range(len(filtered_openings)):
+    moves1 = filtered_openings[i]
+    for j in range(len(filtered_openings)):
         if i == j:
             continue
-        moves2 = filtered_moves[j]
+        moves2 = filtered_openings[j]
         n = len(moves1)
         if n <= len(moves2) and moves1[:n - 1] == moves2[:n - 1] and moves1[n - 1][0] == moves2[n - 1][0] and \
                 moves1[n - 1][1] <= moves2[n - 1][1]:  # 1 is prefix of 2
             break
 
     else:  # 1 is prefix of nothing
-        useful_moves.append(filtered_moves[i])
+        openings.append(filtered_openings[i])
 
-useful_moves.sort(key=lambda moves: (
-    -get_land(moves),
-    sum(move is not None for move in moves),
-    (sorted(-move[1] for move in moves if move is not None) + [0, 0])[1],  # maximize second maximum
-    tuple(move if move is not None else (-1, -1) for move in moves)
-))
+# order openings
+
+sort_cmps = [
+    lambda moves: -get_land(moves),  # maximize land
+    lambda moves: get_number_lines(moves),  # minimize number of lines
+    lambda moves: (sorted(-move[1] for move in moves if move is not None) + [0, 0])[1],  # maximize second maximum
+    lambda moves: tuple(move if move is not None else (-1, -1) for move in moves)  # no unspecified behavior
+]
 
 
-def print_cnts(openings):
-    cnts = {}
-    for moves in openings:
-        land = get_land(moves)
-        side = get_sides(moves)
-        if land not in cnts:
-            cnts[land] = {1: 0, 2: 0, 3: 0, 4: 0}
-        cnts[land][side] += 1
-
-    for land, sides in cnts.items():
-        print(land, sides)
+def sort_openings(openings):
+    openings.sort(key=lambda moves: tuple(cmp(moves) for cmp in sort_cmps))
 
 
 def reorder_statistics(openings, statistics_file):
+    global sort_cmps
+
     with open(statistics_file) as f:
         opening_records = list(map(int, f.read().strip().split()))
     statistics = dict()
     for record in opening_records:
         statistics[openings[record]] = statistics.get(openings[record], 0) + 1
 
-    new_openings = openings.copy()
-    new_openings.sort(key=lambda moves: (
-        -statistics.get(moves, 0),
-        -get_land(moves),
-        sum(move is not None for move in moves),
-        (sorted(-move[1] for move in moves if move is not None) + [0, 0])[1],  # maximize second maximum
-        tuple(move if move is not None else (-1, -1) for move in moves)
-    ))
-    return new_openings
+    sort_cmps = [lambda moves: -statistics.get(moves, 0)] + sort_cmps
+    sort_openings(openings)
 
 
-openings = reorder_statistics(useful_moves, os.path.join(curdir, "opening_statistics.txt"))
+sort_openings(openings)
+reorder_statistics(openings, os.path.join(curdir, "opening_statistics.txt"))
 
-print_cnts(openings)
+# print openings count
+cnts = {}
+for moves in openings:
+    land = get_land(moves)
+    side = get_sides(moves)
+    if land not in cnts:
+        cnts[land] = {1: 0, 2: 0, 3: 0, 4: 0}
+    cnts[land][side] += 1
+
+for land, sides in cnts.items():
+    print(land, sides)
 
 print("openings:", len(openings))
