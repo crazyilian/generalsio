@@ -2,19 +2,31 @@ from base.base.bot_base import GeneralsBot
 from base.base.client.map import Map
 from base.base.client.tile import Tile
 from base.base.client.constants import *
+from enum import Enum
 
 from typing import List, Optional
 from collections import deque
 
 
+class Phase(Enum):
+    R0_PREPARE = 0
+    R1_OPENING = 1
+    R2_PLUMP = 2
+    R2_LINE_PREPARE = 3
+    R2_LINE = 4
+
+
 class GameGlobals:
     bot: GeneralsBot = None
     gamemap: Map = None
+    self = -1
     my_general: Tile = None
     other_general: Tile = None
     maybe_generals: List[Tile] = []
     side_graph: List[List[int]] = None
+    armies: List[int] = None
     H, W = -1, -1
+    phase = -1
 
 
 GG = GameGlobals()
@@ -23,12 +35,19 @@ GG = GameGlobals()
 def init(bot: GeneralsBot, gamemap: Map):
     GG.bot = bot
     GG.gamemap = gamemap
-    GG.my_general = gamemap.generals[gamemap.player_index]
+    GG.self = gamemap.player_index
+    GG.my_general = gamemap.generals[GG.self]
     GG.H = gamemap.rows
     GG.W = gamemap.cols
+    GG.phase = Phase.R0_PREPARE
     make_side_graph()
     calc_unreachable()
     recalc_maybe_general(use_previous=False)
+    update()
+
+
+def update():
+    GG.armies = [vert2tile(v).army for v in range(GG.W * GG.H)]
 
 
 def tile2vert(tile):
@@ -59,6 +78,10 @@ def make_side_graph():
 
 
 def manhattan(tile1, tile2):
+    if isinstance(tile1, int):
+        tile1 = vert2tile(tile1)
+    if isinstance(tile2, int):
+        tile2 = vert2tile(tile2)
     return abs(tile1.y - tile2.y) + abs(tile1.x - tile2.x)
 
 
@@ -86,7 +109,7 @@ def recalc_maybe_general(use_previous=True):
         GG.other_general = None
         GG.maybe_generals = list(range(GG.H * GG.W))
 
-    GG.other_general = GG.gamemap.generals[1 - GG.gamemap.player_index]
+    GG.other_general = GG.gamemap.generals[1 - GG.self]
     if GG.other_general is not None:
         return
 

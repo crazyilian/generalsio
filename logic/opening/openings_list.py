@@ -143,6 +143,7 @@ def reorder_statistics(openings, statistics_file):
 
 sort_openings(openings)
 reorder_statistics(openings, os.path.join(curdir, "opening_statistics.txt"))
+reorder_statistics(openings, os.path.join(curdir, "opening_statistics2.txt"))
 
 # print openings count
 cnts = {}
@@ -152,8 +153,5 @@ for moves in openings:
     if land not in cnts:
         cnts[land] = {1: 0, 2: 0, 3: 0, 4: 0}
     cnts[land][side] += 1
-
-for land, sides in cnts.items():
-    print(land, sides)
 
 print("openings:", len(openings))

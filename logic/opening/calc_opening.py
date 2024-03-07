@@ -207,7 +207,7 @@ def get_all_destinations():
                 l = m
         # (ideal_y, ideal_x) - intersection of ray and border
         ideal_y = dy * l + y0
-        ideal_x = dx * r + x0
+        ideal_x = dx * l + x0
         # (best_y, best_x) - nearest maybe-general tile in sector to (ideal_y, ideal_x)
         best_y, best_x = None, None
         best_dist = float('inf')
@@ -275,15 +275,6 @@ def get_destination_coverings(max_opening_len):
     return dest_covering
 
 
-# return function that sending given moves to queue
-def get_place_function(moves):
-    def place():
-        for move in moves:
-            GG.bot.place_move(vert2tile(move[0]), vert2tile(move[1]))
-
-    return place
-
-
 # goes over all openings and destination permutations searching for best opening (maximize land, then empty neighbors)
 def get_opening():
     tic = time.time()
@@ -300,7 +291,6 @@ def get_opening():
             break
         if openings_list.get_land(opening) < mx_land:  # current opening can't be better
             continue
-        print('calc op:', op_ind)
         dest_covering = destination_coverings[openings_list.get_number_lines(opening)]
         for dests in set(permutations(dest_covering)):
             land, empty_neighs, moves = calculate_one_opening(opening, dests, mx_land)
@@ -310,20 +300,12 @@ def get_opening():
                 mx_land = land
                 mx_empty_neighs = empty_neighs
                 mx_op_ind = op_ind
-                opening_turns = dict()
-                for i in range(len(moves)):
-                    opening_turns[moves[i][0]] = get_place_function(moves[i][1].copy())
-                GG.opening_turns = opening_turns
+                GG.opening_moves = dict(moves)
         else:
             continue
     print("opening:", mx_op_ind)
     print("land:", mx_land)
     print("empty neighs:", mx_empty_neighs)
-    with open(os.path.join(curdir, "opening_statistics2.log"), "a") as f:
-        f.write(str(mx_op_ind) + '\n')
-    if mx_land <= 18:
-        with open(os.path.join(curdir, "bad_spawns.log"), "a") as f:
-            f.write(f"land: {mx_land}, {GG.gamemap.replay_url}\n")
     print('Opening calculation time:', time.time() - tic)
 
 
@@ -333,4 +315,4 @@ def start_opening():
 
 def init():
     GG.opening_already_started = False
-    GG.opening_turns = dict()
+    GG.opening_moves = dict()
