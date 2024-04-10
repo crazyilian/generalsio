@@ -16,18 +16,33 @@ class Move:
         return vert2tile(self.v), vert2tile(self.u), self.is50
 
 
+def default_validate(v, u, is50):
+    a = GG.armies[v] - 1 if not is50 else GG.armies[v] // 2
+    return a > 0 and vert2tile(v).tile == GG.self
+
+
 class MovesQueue:
     def __init__(self, bot):
         self.bot = bot
         self.moves = deque()
         self.last_move = None
 
-    def extend_verts(self, moves, validate=lambda v, u: True):
-        validate3 = lambda v, u, is50: not is50 and validate(v, u)
-        self.extend([Move(v, u, False, validate3) for v, u in moves])
+    def extend_verts(self, moves, validate=None, is50=False):
+        if validate is not None:
+            validate3 = lambda v, u, fifty: validate(v, u)
+        else:
+            validate3 = default_validate
+        self.extend([Move(v, u, is50, validate3) for v, u in moves])
 
     def extend(self, moves):
         self.moves.extend(moves)
+
+    def extend_path(self, path, is50=False, validate=None):
+        moves = []
+        for i in range(1, len(path)):
+            moves.append((path[i - 1], path[i]))
+        self.extend_verts(moves[:1], validate, is50=is50)
+        self.extend_verts(moves[1:], validate, is50=False)
 
     def clear(self):
         self.moves.clear()
@@ -44,10 +59,22 @@ class MovesQueue:
             return False
         return self.bot.place_move(*self.last_move.data_tile())
 
+    def exec_until_success(self):
+        while len(self.moves) > 0:
+            if self.exec():
+                return True
+        return False
+
+
     def exec_all(self):
         while len(self.moves) > 0:
             self.exec()
 
 
+    def empty(self):
+        return len(self.moves) == 0
+
+
 def init():
     GG.queue = MovesQueue(GG.bot)
+    GG.urgent_queue = MovesQueue(GG.bot)

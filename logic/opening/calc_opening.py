@@ -300,19 +300,10 @@ def get_opening():
                 mx_land = land
                 mx_empty_neighs = empty_neighs
                 mx_op_ind = op_ind
-                GG.opening_moves = dict(moves)
+                GG.planned_moves = dict(moves)
         else:
             continue
     print("opening:", mx_op_ind)
     print("land:", mx_land)
     print("empty neighs:", mx_empty_neighs)
     print('Opening calculation time:', time.time() - tic)
-
-
-def start_opening():
-    GG.opening_already_started = True
-
-
-def init():
-    GG.opening_already_started = False
-    GG.opening_moves = dict()
