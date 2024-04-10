@@ -20,36 +20,37 @@ def calc_lazy(v, k, dp, tree, armies, dist, useless):
     ans = armies[v] - 1
     ansd = dist[v]
     anssm = (0,) * len(tree[v])
-    for sm in itertools.product(range(0, k), repeat=len(tree[v]) - 1):
-        last = k - sum(sm) - 1
-        if last < 0:
-            continue
-        sm = list(sm) + [last]
-
-        bad = False
-        for u, val in zip(tree[v], sm):
-            if val != 0 and useless[u]:
-                bad = True
-                break
-        if bad:
-            continue
-
-        res = armies[v] - 1
-        resd = dist[v]
-        for i in range(len(tree[v])):
-            if sm[i] == 0:
+    if len(tree) >= 1:
+        for sm in itertools.product(range(0, k), repeat=len(tree[v]) - 1):
+            last = k - sum(sm) - 1
+            if last < 0:
                 continue
-            x, d, _ = calc_lazy(tree[v][i], sm[i], dp, tree, armies, dist, useless)
-            if x > 0:
-                res += x
-                resd = max(resd, d)
-            else:
-                sm[i] = 0
+            sm = list(sm) + [last]
 
-        if res > ans or (res == ans and resd < ansd):
-            ans = res
-            ansd = resd
-            anssm = tuple(sm)
+            bad = False
+            for u, val in zip(tree[v], sm):
+                if val != 0 and useless[u]:
+                    bad = True
+                    break
+            if bad:
+                continue
+
+            res = armies[v] - 1
+            resd = dist[v]
+            for i in range(len(tree[v])):
+                if sm[i] == 0:
+                    continue
+                x, d, _ = calc_lazy(tree[v][i], sm[i], dp, tree, armies, dist, useless)
+                if x > 0:
+                    res += x
+                    resd = max(resd, d)
+                else:
+                    sm[i] = 0
+
+            if res > ans or (res == ans and resd < ansd):
+                ans = res
+                ansd = resd
+                anssm = tuple(sm)
     dp[v][k] = (ans, ansd, anssm)
     return dp[v][k]
 

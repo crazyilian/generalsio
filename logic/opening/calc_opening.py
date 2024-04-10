@@ -258,7 +258,8 @@ def get_destination_coverings(max_opening_len):
                 if not left_taken and not right_taken:  # sector is not covered
                     break
         else:  # if every non-empty sector is covered
-            bcnt = mask.bit_count()  # number of taken destinations
+            bcnt = str(mask).count('1')
+            # bcnt = mask.bit_count()  # number of taken destinations
             if w > dest_covering_weight[bcnt]:
                 dest_covering_weight[bcnt] = w
                 dest_covering[bcnt] = covering
