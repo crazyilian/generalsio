@@ -2,6 +2,24 @@ from collections import deque
 from logic.utils import GG, vert2tile
 
 
+class Multiset:
+    def __init__(self):
+        self.st = dict()
+
+    def add(self, x):
+        self.st[x] = self.st.get(x, 0) + 1
+
+    def remove(self, x):
+        cnt = self.st.get(x, 0)
+        if self.st.get(x) == 1:
+            self.st.pop(x)
+        elif cnt > 1:
+            self.st[x] = cnt - 1
+
+    def __contains__(self, item):
+        return item in self.st
+
+
 class Move:
     def __init__(self, v, u, is50, validate):
         self.v = v
@@ -26,16 +44,22 @@ class MovesQueue:
         self.bot = bot
         self.moves = deque()
         self.last_move = None
+        self.sources = Multiset()
 
-    def extend_verts(self, moves, validate=None, is50=False):
+    def extend_verts(self, moves, validate=None, is50=False, to_left=False):
         if validate is not None:
             validate3 = lambda v, u, fifty: validate(v, u)
         else:
             validate3 = default_validate
-        self.extend([Move(v, u, is50, validate3) for v, u in moves])
+        self.extend([Move(v, u, is50, validate3) for v, u in moves], to_left)
 
-    def extend(self, moves):
-        self.moves.extend(moves)
+    def extend(self, moves, to_left=False):
+        if to_left:
+            self.moves.extendleft(moves[::-1])
+        else:
+            self.moves.extend(moves)
+        for mv in moves:
+            self.sources.add(mv.v)
 
     def extend_path(self, path, is50=False, validate=None):
         moves = []
@@ -54,6 +78,7 @@ class MovesQueue:
         if len(self.moves) == 0:
             return False
         self.last_move: Move = self.moves.popleft()
+        self.sources.remove(self.last_move.v)
         if not self.last_move.validate(*self.last_move.data()):
             print("Queue validation failed:", *self.last_move.data_tile())
             return False
@@ -65,11 +90,9 @@ class MovesQueue:
                 return True
         return False
 
-
     def exec_all(self):
         while len(self.moves) > 0:
             self.exec()
-
 
     def empty(self):
         return len(self.moves) == 0

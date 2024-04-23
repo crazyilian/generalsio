@@ -28,8 +28,10 @@ class GameGlobals:
     phase: int = None
     planned_moves: dict = None
     my_general_exposed: bool = None
+    verts_closer_than: dict = None
 
     side_graph: List[List[int]] = None
+    dists_from_general: List[int] = None
     enemy_general: Tile = None
     maybe_generals: List[Tile] = None
     armies: List[int] = None
@@ -49,16 +51,26 @@ def init(bot: GeneralsBot, gamemap: Map):
     GG.phase = Phase.PREPARE
     GG.planned_moves = dict()
     GG.my_general_exposed = False
+    GG.verts_closer_than = dict()
     make_side_graph()
     calc_unreachable()
     recalc_maybe_general(use_previous=False)
+    recalc_last_seen(is_first=True)
     update()
+
+
+def verts_closer_than(dist):
+    if dist not in GG.verts_closer_than:
+        GG.verts_closer_than[dist] = [v for v in range(GG.W * GG.H) if
+                                      GG.dists_from_general[v] is not None and GG.dists_from_general[v] <= dist]
+    return GG.verts_closer_than[dist]
 
 
 def update():
     GG.armies = [vert2tile(v).army for v in range(GG.W * GG.H)]
     recalc_maybe_general()
     update_general_exposed()
+    recalc_last_seen()
 
 
 def update_general_exposed():
@@ -91,8 +103,9 @@ def seen_by(v):
         for dx in (-1, 0, 1):
             y = y0 + dy
             x = x0 + dx
-            if 0 <= y < GG.H and 0 <= x < GG.W:
-                res.append(y * GG.W + x)
+            v = y * GG.W + x
+            if 0 <= y < GG.H and 0 <= x < GG.W and not vert2tile(v).is_unreachable:
+                res.append(v)
     return res
 
 
@@ -166,9 +179,9 @@ def bfs_limit(start, graph, dist_limit, is_blocked=lambda v: False):
 
 
 def calc_unreachable():
-    dists_to_general = bfs(tile2vert(GG.my_general), GG.side_graph)
+    GG.dists_from_general = bfs(tile2vert(GG.my_general), GG.side_graph)
     for v in range(GG.W * GG.H):
-        vert2tile(v).is_unreachable = dists_to_general[v] is None
+        vert2tile(v).is_unreachable = GG.dists_from_general[v] is None
 
 
 def recalc_maybe_general(use_previous=True):
@@ -207,3 +220,18 @@ def recalc_maybe_general(use_previous=True):
                 table += "."
         table += '\n'
     # print(table)
+
+
+def recalc_last_seen(is_first=False):
+    if is_first:
+        for y in range(GG.H):
+            for x in range(GG.W):
+                GG.gamemap.grid[y][x].last_seen = -1000
+    else:
+        for tile in list(GG.gamemap.tiles[GG.self]):
+            for u in seen_by(tile2vert(tile)):
+                vert2tile(u).last_seen = GG.gamemap.turn
+        for tile in list(GG.gamemap.tiles[GG.enemy]):
+            if tile.last_seen != GG.gamemap.turn:
+                GG.gamemap.tiles[GG.enemy].remove(tile)
+                tile.tile = -3

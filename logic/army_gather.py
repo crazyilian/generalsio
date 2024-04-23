@@ -2,7 +2,7 @@ import itertools
 
 from logic.utils import dijkstra, bfs_limit
 from logic.utils import GG, vert2tile, tile2vert
-from collections import deque
+import time
 
 
 def calc_useless(v, tree, armies, useless):
@@ -70,9 +70,21 @@ def restore_moves(v, k, dp, tree):
 INF = 10 ** 9
 
 
+def get_oriented_armies():
+    turn = GG.gamemap.turn
+    armies = [GG.armies[v] if vert2tile(v).tile == GG.self else -GG.armies[v] for v in range(len(GG.armies))]
+    for v in range(len(armies)):
+        if armies[v] >= 0:
+            continue
+        age = turn - vert2tile(v).last_seen
+        armies[v] = -1 + 3 * (armies[v] + 1) / (2 + 2 ** min(age / 2, 100))
+    return armies
+
+
 def calc_utility(is_blocked):
     graph = GG.side_graph
-    armies = [GG.armies[v] if vert2tile(v).tile == GG.self else -GG.armies[v] for v in range(len(GG.armies))]
+    armies = get_oriented_armies()
+    # armies = [GG.armies[v] if vert2tile(v).tile == GG.self else -GG.armies[v] for v in range(len(GG.armies))]
 
     utility = [0] * len(graph)
     for start in range(len(graph)):
@@ -110,27 +122,23 @@ def gather_pre(root, block_general=False):
         if max_p is not None:
             bfs_tree[max_p].append(v)
 
-    armies = [GG.armies[v] if vert2tile(v).tile == GG.self else -GG.armies[v] for v in range(len(GG.armies))]
-    for v in range(len(GG.armies)):
-        tile = vert2tile(v)
-        if tile.tile == -3 and tile.army != 0:
-            print("AAAAAAAAAAAAAAAAAAAAAAAAAAAA ", tile)
+    # armies = [GG.armies[v] if vert2tile(v).tile == GG.self else -GG.armies[v] for v in range(len(GG.armies))]
+    armies = get_oriented_armies()
     useless = [True] * len(bfs_tree)
     calc_useless(root, bfs_tree, armies, useless)
     return bfs_tree, dists, armies, useless
 
 
-def gather_time_limit(root, cell_limit, block_general=False):
+def gather_time_limit(root, time_limit, block_general=False):
+    cell_limit = time_limit + 1
+
     graph = GG.side_graph
     bfs_tree, dists, armies, useless = gather_pre(root, block_general)
 
     dp = [dict() for i in range(len(graph))]
     calc_lazy(root, cell_limit, dp, bfs_tree, armies, dists, useless)
     moves = restore_moves(root, cell_limit, dp, bfs_tree)
-    return moves
-
-
-import time
+    return moves, int(dp[root][cell_limit][0])
 
 
 def gather_army_limit(root, army, cell_range, block_general=False):
@@ -146,4 +154,5 @@ def gather_army_limit(root, army, cell_range, block_general=False):
             break
     moves = restore_moves(root, cl, dp, bfs_tree)
     print('------ gather army limit -------', time.time() - tic)
-    return moves, dp[root][cl][0]
+    return moves, int(dp[root][cl][0])
+

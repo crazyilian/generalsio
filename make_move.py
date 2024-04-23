@@ -1,44 +1,29 @@
-from logic.utils import GG, Phase
+from logic.utils import GG, Phase, tile2vert
 from logic import utils
 from logic import opening
 from logic import moves_queue
 from logic import army_gather
 from logic import early_search_lines
 from logic import search_lines
+from logic import plump
+from logic import hide_defense
+import time
 
 
-def hide_general():
-    if GG.my_general_exposed or not GG.urgent_queue.empty():
-        return
-    x0, y0 = GG.my_general.x, GG.my_general.y
-    max_enemy_army = 0
-    max_dx, max_dy = None, None
-    for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-        x = x0 + dx * 2
-        y = y0 + dy * 2
-        if x < 0 or GG.W <= x or y < 0 or GG.H <= y or utils.is_blocked_vert((y0 + dy) * GG.W + x0 + dx):
-            continue
-        tile = GG.gamemap.grid[y][x]
-        if tile.army > max_enemy_army and tile.tile == GG.enemy:
-            max_enemy_army = tile.army
-            max_dx = dx
-            max_dy = dy
-    if max_enemy_army == 0:
-        return
-    print(f'hide general: max_enemy_army={max_enemy_army}')
-    dx, dy, a = max_dx, max_dy, max_enemy_army
-    b = GG.gamemap.grid[y0 + dy][x0 + dx].army
-    g = GG.my_general.army
+def print_armies():
+    for y in range(GG.H):
+        for x in range(GG.W):
+            tile = GG.gamemap.grid[y][x]
+            if utils.is_blocked_vert(y * GG.W + x):
+                print(' ##', end=' ')
+            else:
+                a = tile.army if tile.tile == GG.self else -tile.army
+                print("{:>3}".format(a), end=' ')
+        print()
 
-    if g - 1 + b >= a:  # hide
-        is50 = g // 2 + b - 1 > a
-        G = y0 * GG.W + x0
-        B = (y0 + dy) * GG.W + x0 + dx
-        A = (y0 + 2 * dy) * GG.W + x0 + 2 * dx
-        GG.urgent_queue.extend_path([G, B, A, B, G], is50=is50)
-    else:  # try defense
-        moves_gather = army_gather.gather_time_limit(utils.tile2vert(GG.my_general), 3)
-        GG.urgent_queue.extend_verts(moves_gather)
+
+def is_almost_finished_attack():
+    return GG.phase == Phase.ATTACK_GENERAL and 0 < len(GG.queue) < 10
 
 
 def make_move(bot, gamemap):
@@ -48,16 +33,16 @@ def make_move(bot, gamemap):
     if turn == 2:
         utils.init(bot, gamemap)
         moves_queue.init()
+        hide_defense.init()
         GG.phase = Phase.OPENING
     else:
         utils.update()
-    print('turn:', turn)
+    print('turn:', turn, time.time())
 
     while GG.phase == Phase.OPENING:
         if turn == 50:
             GG.phase = Phase.EARLY_S_LINES
             GG.last_direction = -1
-            GG.cnt_early_lines = 0
             break
         if turn == 2:
             GG.opening_already_started = False
@@ -69,25 +54,30 @@ def make_move(bot, gamemap):
             GG.queue.exec_all()
         return
 
-    hide_general()
+    hide_defense.run(not is_almost_finished_attack())
     if not GG.urgent_queue.empty():
         if GG.urgent_queue.exec_until_success():
+            GG.queue.clear()
             return
 
     if GG.phase != Phase.ATTACK_GENERAL and GG.enemy_general is not None:
         GG.queue.clear()
         GG.phase = Phase.ATTACK_GENERAL
-        GG.attack_cell_limit = 2
+        GG.attack_cell_limit = 1
+
+    if (turn == 50 or turn % 50 == 40) and not is_almost_finished_attack():
+        moves = plump.get_plump_moves(is_blocked=lambda v: v in GG.queue.sources)
+        moves = moves[:10]
+        GG.queue.extend_verts(moves, to_left=True)
 
     while GG.phase == Phase.EARLY_S_LINES:
         if GG.queue.exec_until_success():
             return
 
-        if (GG.cnt_early_lines >= 2 and len(GG.gamemap.tiles[GG.enemy]) >= 1) \
-                or (GG.cnt_early_lines >= 1 and len(GG.gamemap.tiles[GG.enemy]) >= 5):
+        if len(GG.gamemap.tiles[GG.enemy]) >= 1:
             GG.phase = Phase.S_LINES
+            GG.search_line_dest = None
             break
-        GG.cnt_early_lines += 1
 
         path, moves_gather = early_search_lines.get_moves()
         if len(path) > 0:
@@ -99,11 +89,15 @@ def make_move(bot, gamemap):
         return
 
     while GG.phase == Phase.S_LINES:
+        if len(GG.queue) >= 7 and GG.search_line_dest is not None and search_lines.get_score(GG.search_line_dest) < -1:
+            GG.queue.clear()
         if GG.queue.exec_until_success():
             return
 
         tot_land = gamemap.scores[GG.self]['tiles']
-        path, need_army = search_lines.get_moves()
+        path, need_army, GG.search_line_dest = search_lines.get_moves()
+        print(f'need_army={need_army}, path={path}')
+        # print_armies()
         moves_gather, _ = army_gather.gather_army_limit(path[0], need_army, range(5, tot_land + 1, 5))
         GG.queue.extend_verts(moves_gather)
         GG.queue.extend_path(path)
@@ -117,7 +111,7 @@ def make_move(bot, gamemap):
         if GG.queue.exec_until_success():
             return
 
-        if cnt_tries == 7:
+        if cnt_tries == 8:
             return
         cnt_tries += 1
 
@@ -128,6 +122,18 @@ def make_move(bot, gamemap):
         if GG.attack_cell_limit > tot_land * 2:
             GG.attack_cell_limit = 8
 
-        moves_gather = army_gather.gather_time_limit(utils.tile2vert(GG.enemy_general), GG.attack_cell_limit)
+        enemy_army = GG.enemy_general.army
+        GG.armies[tile2vert(GG.enemy_general)] = 0
+        moves_gather, collected_army = army_gather.gather_time_limit(utils.tile2vert(GG.enemy_general), GG.attack_cell_limit)
+        GG.armies[tile2vert(GG.enemy_general)] = enemy_army
+        collected_army += 1
+        expected_enemy_army = enemy_army + (turn + len(moves_gather)) // 2 - GG.enemy_general.last_seen // 2
+        print(f'enemy_army={enemy_army}, len(moves_gather)={len(moves_gather)}, enemy_general.last_seen={GG.enemy_general.last_seen}')
+        print(f'expected_enemy_army={expected_enemy_army}, collected_army={collected_army}')
+
+        if collected_army - expected_enemy_army <= 0 and GG.attack_cell_limit * 2 < tot_land * 2:
+            # if useless and can make cell_limit bigger
+            continue
+
         print('moves gather:', moves_gather)
         GG.queue.extend_verts(moves_gather)

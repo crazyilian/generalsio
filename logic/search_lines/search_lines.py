@@ -3,7 +3,7 @@ import itertools
 from sortedcontainers import SortedSet
 
 
-def get_score(v, score_raw):
+def process_score(v, score_raw):
     if score_raw[v] is None:
         return None
     dd = bfs_limit(v, GG.side_graph, 2, lambda v: score_raw[v] is None)
@@ -52,15 +52,29 @@ def get_path(pred, v):
     return path[::-1]
 
 
-def calc_score():
+def calc_score_raw():
     dist_to_my = bfs([tile2vert(tile) for tile in GG.gamemap.tiles[GG.self]], GG.side_graph)
     dist_to_enemy = bfs([tile2vert(tile) for tile in GG.gamemap.tiles[GG.enemy]], GG.side_graph,
                         lambda v: vert2tile(v).tile in (GG.self, -1))  # my or empty
 
     score_raw = [None if None in (dist_to_my[v], dist_to_enemy[v]) else 1.1 ** dist_to_my[v] - 1.1 ** dist_to_enemy[v]
                  for v in range(GG.W * GG.H)]
-    score = [get_score(v, score_raw) for v in range(GG.W * GG.H)]
+    return score_raw
+
+
+def calc_score():
+    score_raw = calc_score_raw()
+    score = [process_score(v, score_raw) for v in range(GG.W * GG.H)]
     return score
+
+
+def get_score(v):
+    score_raw = calc_score_raw()
+    res = process_score(v, score_raw)
+    if res is None:
+        res = -float('inf')
+    print(f'get_score {vert2tile(v)} - res={res}')
+    return res
 
 
 def get_moves():
@@ -110,4 +124,4 @@ def get_moves():
 
     best_pathes.sort(key=lambda x: (-x['cnt_seen'], x['army'] + len(x['path'])))
     best_path = best_pathes[0]
-    return best_path['path'], best_path['army'] + len(best_path['path'])
+    return best_path['path'], best_path['army'] + len(best_path['path']), best
