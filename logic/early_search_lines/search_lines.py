@@ -1,4 +1,4 @@
-from logic.utils import GG, bfs_limit, tile2vert, vert2tile, bfs
+from logic.utils import GG, bfs_limit, tile2vert, vert2tile
 from collections import deque
 import time
 from logic.army_gather import gather_army_limit

@@ -1,4 +1,4 @@
-from logic.utils import GG, bfs, bfs_limit, tile2vert, vert2tile, seen_by
+from logic.utils.utils import GG, bfs, bfs_limit, tile2vert, vert2tile, seen_by
 import itertools
 from sortedcontainers import SortedSet
 

@@ -1,7 +1,6 @@
 import itertools
 
-from logic.utils import dijkstra, bfs_limit
-from logic.utils import GG, vert2tile, tile2vert
+from logic.utils import dijkstra, bfs_limit, GG, vert2tile, tile2vert
 import time
 
 
@@ -74,17 +73,17 @@ def get_oriented_armies():
     turn = GG.gamemap.turn
     armies = [GG.armies[v] if vert2tile(v).tile == GG.self else -GG.armies[v] for v in range(len(GG.armies))]
     for v in range(len(armies)):
-        if armies[v] >= 0:
+        tile = vert2tile(v)
+        if armies[v] >= 0 or tile.turn_captured == 0:
             continue
-        age = turn - vert2tile(v).last_seen
-        armies[v] = -1 + 3 * (armies[v] + 1) / (2 + 2 ** min(age / 2, 100))
+        age = turn - tile.last_seen
+        generated = ((age + 1) ** 0.5 - 1) * (2 if tile.isGeneral or tile.isCity else 0.125)
+        armies[v] = -1 + 3 * (armies[v] + 1) / (2 + 2 ** min(age / 2, 100)) - generated
     return armies
 
 
-def calc_utility(is_blocked):
-    graph = GG.side_graph
+def calc_utility(is_blocked, graph):
     armies = get_oriented_armies()
-    # armies = [GG.armies[v] if vert2tile(v).tile == GG.self else -GG.armies[v] for v in range(len(GG.armies))]
 
     utility = [0] * len(graph)
     for start in range(len(graph)):
@@ -102,12 +101,11 @@ def _is_blocked(v, block_general):
     return block_general and tile2vert(GG.my_general) == v
 
 
-def gather_pre(root, block_general=False):
-    graph = GG.side_graph
-    dists = dijkstra(root, GG.side_graph, lambda v: _is_blocked(v, block_general), lambda v: 1 + 3 * (
+def gather_pre(root, block_general, graph):
+    dists = dijkstra(root, graph, lambda v: _is_blocked(v, block_general), lambda v: 1 + 3 * (
             vert2tile(v).tile != GG.self))
     dists = [d if d is not None else INF for d in dists]
-    utility = calc_utility(lambda v: dists[v] == INF)
+    utility = calc_utility(lambda v: dists[v] == INF, graph)
     bfs_tree = [[] for v in range(len(graph))]
     for v in range(len(graph)):
         if dists[v] == INF:
@@ -122,18 +120,19 @@ def gather_pre(root, block_general=False):
         if max_p is not None:
             bfs_tree[max_p].append(v)
 
-    # armies = [GG.armies[v] if vert2tile(v).tile == GG.self else -GG.armies[v] for v in range(len(GG.armies))]
     armies = get_oriented_armies()
     useless = [True] * len(bfs_tree)
     calc_useless(root, bfs_tree, armies, useless)
     return bfs_tree, dists, armies, useless
 
 
-def gather_time_limit(root, time_limit, block_general=False):
+def gather_time_limit(root, time_limit, block_general=False, graph=None):
+    if graph is None:
+        graph = GG.side_graph_cities
+
     cell_limit = time_limit + 1
 
-    graph = GG.side_graph
-    bfs_tree, dists, armies, useless = gather_pre(root, block_general)
+    bfs_tree, dists, armies, useless = gather_pre(root, block_general, graph)
 
     dp = [dict() for i in range(len(graph))]
     calc_lazy(root, cell_limit, dp, bfs_tree, armies, dists, useless)
@@ -141,18 +140,23 @@ def gather_time_limit(root, time_limit, block_general=False):
     return moves, int(dp[root][cell_limit][0])
 
 
-def gather_army_limit(root, army, cell_range, block_general=False):
+def gather_army_limit(root, army, cell_range, block_general=False, graph=None, target_increase=0):
+    if graph is None:
+        graph = GG.side_graph_cities
+
     tic = time.time()
-    graph = GG.side_graph
-    bfs_tree, dists, armies, useless = gather_pre(root, block_general)
+    bfs_tree, dists, armies, useless = gather_pre(root, block_general, graph)
 
     dp = [dict() for i in range(len(graph))]
-    gather_pre(root)
+
+    best_cl, best_collected, best_moves = None, None, None
     for cl in cell_range:
         calc_lazy(root, cl, dp, bfs_tree, armies, dists, useless)
-        if dp[root][cl][0] >= army:
+        moves = restore_moves(root, cl, dp, bfs_tree)
+        collected = dp[root][cl][0] - len(moves) * target_increase
+        if best_cl is None or best_collected < collected:
+            best_cl, best_collected, best_moves = cl, collected, moves
+        if collected >= army:
             break
-    moves = restore_moves(root, cl, dp, bfs_tree)
     print('------ gather army limit -------', time.time() - tic)
-    return moves, int(dp[root][cl][0])
-
+    return best_moves, best_collected

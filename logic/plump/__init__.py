@@ -1,1 +1,1 @@
-from .plump import get_plump_moves, can_expand, init
+from .plump import get_plump_moves, validate

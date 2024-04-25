@@ -1,7 +1,8 @@
 from logic.utils import GG, verts_closer_than, vert2tile, seen_by, tile2vert
 from sortedcontainers import SortedSet
 from logic.army_gather import gather_time_limit, gather_army_limit
-from logic.plump import get_plump_moves
+from logic import plump
+from logic.moves_queue import Policy50
 
 
 def dijkstra(starts, graph, is_blocked=lambda v: False, get_weight=lambda v, u: 1, dist_limit=float('inf')):
@@ -37,9 +38,8 @@ def get_nearest_enemy(enemies, dist):
 
 
 def get_worst_enemy(starts, dist_limit, enemies):
-    dist, pred = dijkstra(starts, GG.side_graph,
-                          get_weight=lambda v, u: (GG.armies[v] + 1 if vert2tile(v).tile == GG.self
-                                                   else int(vert2tile(v).tile < 0)),
+    dist, pred = dijkstra(starts, GG.side_graph_cities,
+                          get_weight=lambda v, u: 0 if vert2tile(v).tile == GG.enemy else GG.armies[v] + 1,
                           dist_limit=dist_limit)
     worst_enemy = None
     worst_army_delta = -10 ** 9
@@ -63,18 +63,20 @@ def attack_nearest(enemies, dist, dist_limit, is_new_status):
     if len(moves) == 0:
         return
 
+    GG.hide_defense_attack = True
+    GG.urgent_queue.extend_verts(moves)
+    print(f'moves={moves}')
+
     if is_new_status:
         # wait while updated=False (works because urgent_queue clears if updated=True)
         affected_verts = set()
         for v, u in moves:
             affected_verts.add(v)
             affected_verts.add(u)
-        plump_moves = get_plump_moves(is_blocked=lambda v: v in affected_verts, limit=1)
-        moves = plump_moves + moves
+        plump_moves = plump.get_plump_moves(is_blocked=lambda v: v in affected_verts, limit=1)
+        GG.urgent_queue.extend_verts(plump_moves, policy50=Policy50.TRY, to_left=True, validate=plump.validate)
+        print(f'plump_moves={plump_moves}')
 
-    GG.hide_defense_attack = True
-    GG.urgent_queue.extend_verts(moves)
-    print(f'moves={moves}')
     return
 
 
@@ -91,8 +93,9 @@ def get_enemies(dist_limit):
     enemies = []
     seen_by_general = set(seen_by(tile2vert(GG.my_general)))
     for v in verts_closer_than(dist_limit):
-        if (vert2tile(v).tile == GG.enemy and
-                (GG.armies[v] - GG.dists_from_general[v] * 2 >= -3 or v in seen_by_general)):
+        if (vert2tile(v).tile == GG.enemy
+                and vert2tile(v).last_seen == GG.gamemap.turn
+                and (GG.armies[v] - GG.dists_from_general_cities[v] * 2 >= -3 or v in seen_by_general)):
             enemies.append(v)
     return enemies, seen_by_general
 
@@ -153,11 +156,12 @@ def run(soft_attack):
             attack_nearest(enemies, dist, dist_limit, updated)
         return
     print('defense')
-    if GG.my_general_exposed:
+
+    need = GG.my_general.army + GG.armies[worst_enemy] - dist[worst_enemy][1]
+    moves, _ = gather_army_limit(tile2vert(GG.my_general), need, [1, 2, 3, 4, 6, 8, 10, 12, 15, 18, 21, 25, 30])
+    if len(moves) > dist[worst_enemy][0] and GG.my_general_exposed:
+        print(f'cant do army limit: len(moves)={len(moves)}, dist[worst]={dist[worst_enemy][0]}')
         moves, _ = gather_time_limit(tile2vert(GG.my_general), dist[worst_enemy][0] - 1)
-    else:
-        need = GG.my_general.army + GG.armies[worst_enemy] - dist[worst_enemy][1]
-        moves, _ = gather_army_limit(tile2vert(GG.my_general), need, [1, 2, 3, 4, 6, 8, 10, 12, 15, 18, 21, 25, 30])
     print(f'moves={moves}')
     GG.urgent_queue.extend_verts(moves[:1])
 

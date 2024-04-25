@@ -1,29 +1,20 @@
-from logic.utils import GG, Phase, tile2vert
+from logic.utils import GG, Phase
 from logic import utils
 from logic import opening
-from logic import moves_queue
 from logic import army_gather
 from logic import early_search_lines
 from logic import search_lines
 from logic import plump
 from logic import hide_defense
+from logic import capture_city
+from logic import moves_queue
 import time
 
 
-def print_armies():
-    for y in range(GG.H):
-        for x in range(GG.W):
-            tile = GG.gamemap.grid[y][x]
-            if utils.is_blocked_vert(y * GG.W + x):
-                print(' ##', end=' ')
-            else:
-                a = tile.army if tile.tile == GG.self else -tile.army
-                print("{:>3}".format(a), end=' ')
-        print()
-
-
 def is_almost_finished_attack():
-    return GG.phase == Phase.ATTACK_GENERAL and 0 < len(GG.queue) < 10
+    if GG.phase != Phase.ATTACK_GENERAL:
+        return False
+    return 0 < len(GG.queue) < 10 or (len(GG.queue) == 0 and GG.gamemap.turn < GG.attack_phase_start_turn + 10)
 
 
 def make_move(bot, gamemap):
@@ -32,8 +23,8 @@ def make_move(bot, gamemap):
         return
     if turn == 2:
         utils.init(bot, gamemap)
-        moves_queue.init()
         hide_defense.init()
+        capture_city.init()
         GG.phase = Phase.OPENING
     else:
         utils.update()
@@ -50,7 +41,7 @@ def make_move(bot, gamemap):
         if turn in GG.planned_moves:
             GG.opening_already_started = True
             print("Opening turn:", turn)
-            GG.queue.extend_verts(GG.planned_moves[turn], validate=lambda v, u: True)
+            GG.queue.extend_verts(GG.planned_moves[turn], validate=lambda v, u, is50: True)
             GG.queue.exec_all()
         return
 
@@ -63,11 +54,18 @@ def make_move(bot, gamemap):
     if GG.phase != Phase.ATTACK_GENERAL and GG.enemy_general is not None:
         GG.queue.clear()
         GG.phase = Phase.ATTACK_GENERAL
-        GG.attack_cell_limit = 1
+        GG.attack_phase_start_turn = turn
 
     if (turn == 50 or turn % 50 == 40) and not is_almost_finished_attack():
         moves = plump.get_plump_moves(is_blocked=lambda v: v in GG.queue.sources)
-        moves = moves[:10]
+        moves = moves[:5] if turn == 50 else moves[:10]
+        GG.queue.extend_verts(moves, policy50=moves_queue.Policy50.TRY, to_left=True, validate=plump.validate)
+
+    if turn >= 300 + 150 * len(GG.captured_cities) and len(GG.queue) == 0 and not is_almost_finished_attack():
+        moves = capture_city.get_capture_moves()
+        if len(moves) > 0:
+            print('----- CAPTURING CITY ----')
+            print(moves)
         GG.queue.extend_verts(moves, to_left=True)
 
     while GG.phase == Phase.EARLY_S_LINES:
@@ -86,54 +84,44 @@ def make_move(bot, gamemap):
 
         if GG.queue.exec_until_success():
             return
-        return
+        break
 
     while GG.phase == Phase.S_LINES:
-        if len(GG.queue) >= 7 and GG.search_line_dest is not None and search_lines.get_score(GG.search_line_dest) < -1:
+        if (len(GG.queue) >= 5 and GG.search_line_dest is not None
+                and search_lines.get_score(GG.search_line_dest) < GG.stop_search_score):
             GG.queue.clear()
         if GG.queue.exec_until_success():
             return
 
         tot_land = gamemap.scores[GG.self]['tiles']
         path, need_army, GG.search_line_dest = search_lines.get_moves()
+        GG.stop_search_score = min(-1, search_lines.get_score(GG.search_line_dest) - 1.5)
         print(f'need_army={need_army}, path={path}')
-        # print_armies()
         moves_gather, _ = army_gather.gather_army_limit(path[0], need_army, range(5, tot_land + 1, 5))
         GG.queue.extend_verts(moves_gather)
         GG.queue.extend_path(path)
 
         if GG.queue.exec_until_success():
             return
-        return
+        break
 
-    cnt_tries = 0
     while GG.phase == Phase.ATTACK_GENERAL:
         if GG.queue.exec_until_success():
             return
-
-        if cnt_tries == 8:
-            return
-        cnt_tries += 1
-
-        # tot_army = gamemap.scores[GG.self]['total']
-        tot_land = gamemap.scores[GG.self]['tiles']
-
-        GG.attack_cell_limit *= 2
-        if GG.attack_cell_limit > tot_land * 2:
-            GG.attack_cell_limit = 8
-
-        enemy_army = GG.enemy_general.army
-        GG.armies[tile2vert(GG.enemy_general)] = 0
-        moves_gather, collected_army = army_gather.gather_time_limit(utils.tile2vert(GG.enemy_general), GG.attack_cell_limit)
-        GG.armies[tile2vert(GG.enemy_general)] = enemy_army
-        collected_army += 1
-        expected_enemy_army = enemy_army + (turn + len(moves_gather)) // 2 - GG.enemy_general.last_seen // 2
-        print(f'enemy_army={enemy_army}, len(moves_gather)={len(moves_gather)}, enemy_general.last_seen={GG.enemy_general.last_seen}')
-        print(f'expected_enemy_army={expected_enemy_army}, collected_army={collected_army}')
-
-        if collected_army - expected_enemy_army <= 0 and GG.attack_cell_limit * 2 < tot_land * 2:
-            # if useless and can make cell_limit bigger
-            continue
-
+        moves_gather, collected_army = army_gather.gather_army_limit(
+            utils.tile2vert(GG.enemy_general),
+            1,
+            [1, 2, 4, 8, 16, 24, 32, 48, 64, 128, 256],
+            target_increase=0.5
+        )
         print('moves gather:', moves_gather)
         GG.queue.extend_verts(moves_gather)
+
+        if GG.queue.exec_until_success():
+            return
+        break
+
+    print('NO MOVES, PLUMPING 1')
+    moves = plump.get_plump_moves(is_blocked=lambda v: v in GG.queue.sources, limit=1)
+    GG.queue.extend_verts(moves, policy50=moves_queue.Policy50.TRY, to_left=True, validate=plump.validate)
+    GG.queue.exec_until_success()

@@ -1,5 +1,6 @@
 from collections import deque
 from logic.utils import GG, vert2tile
+from enum import Enum
 
 
 class Multiset:
@@ -20,38 +21,39 @@ class Multiset:
         return item in self.st
 
 
+class Policy50(Enum):
+    NO = 0
+    YES = 1
+    TRY = 2
+
+
 class Move:
-    def __init__(self, v, u, is50, validate):
+    def __init__(self, v, u, policy50, validate_):
         self.v = v
         self.u = u
-        self.is50 = is50
-        self.validate = validate
+        self.policy50 = policy50
+        self.validate_ = validate_
 
-    def data(self):
-        return self.v, self.u, self.is50
+    def tiles(self):
+        return vert2tile(self.v), vert2tile(self.u)
 
-    def data_tile(self):
-        return vert2tile(self.v), vert2tile(self.u), self.is50
+    def validate(self, is50):
+        return self.validate_(self.v, self.u, is50)
 
 
-def default_validate(v, u, is50):
+def validate_default(v, u, is50):
     a = GG.armies[v] - 1 if not is50 else GG.armies[v] // 2
     return a > 0 and vert2tile(v).tile == GG.self
 
 
 class MovesQueue:
-    def __init__(self, bot):
-        self.bot = bot
+    def __init__(self):
         self.moves = deque()
         self.last_move = None
         self.sources = Multiset()
 
-    def extend_verts(self, moves, validate=None, is50=False, to_left=False):
-        if validate is not None:
-            validate3 = lambda v, u, fifty: validate(v, u)
-        else:
-            validate3 = default_validate
-        self.extend([Move(v, u, is50, validate3) for v, u in moves], to_left)
+    def extend_verts(self, moves, policy50=Policy50.NO, to_left=False, validate=validate_default):
+        self.extend([Move(v, u, policy50, validate) for v, u in moves], to_left)
 
     def extend(self, moves, to_left=False):
         if to_left:
@@ -61,12 +63,11 @@ class MovesQueue:
         for mv in moves:
             self.sources.add(mv.v)
 
-    def extend_path(self, path, is50=False, validate=None):
+    def extend_path(self, path):
         moves = []
         for i in range(1, len(path)):
             moves.append((path[i - 1], path[i]))
-        self.extend_verts(moves[:1], validate, is50=is50)
-        self.extend_verts(moves[1:], validate, is50=False)
+        self.extend_verts(moves)
 
     def clear(self):
         self.moves.clear()
@@ -79,10 +80,22 @@ class MovesQueue:
             return False
         self.last_move: Move = self.moves.popleft()
         self.sources.remove(self.last_move.v)
-        if not self.last_move.validate(*self.last_move.data()):
-            print("Queue validation failed:", *self.last_move.data_tile())
+
+        if self.last_move.policy50 == Policy50.NO:
+            go = 100 * self.last_move.validate(False)
+        elif self.last_move.policy50 == Policy50.YES:
+            go = 50 * self.last_move.validate(True)
+        else:
+            if self.last_move.validate(True):
+                go = 50
+            elif self.last_move.validate(False):
+                go = 100
+            else:
+                go = 0
+        if go == 0:
+            print("Queue validation failed:", *self.last_move.tiles(), self.last_move.policy50)
             return False
-        return self.bot.place_move(*self.last_move.data_tile())
+        return GG.bot.place_move(*self.last_move.tiles(), go == 50)
 
     def exec_until_success(self):
         while len(self.moves) > 0:
@@ -96,8 +109,3 @@ class MovesQueue:
 
     def empty(self):
         return len(self.moves) == 0
-
-
-def init():
-    GG.queue = MovesQueue(GG.bot)
-    GG.urgent_queue = MovesQueue(GG.bot)

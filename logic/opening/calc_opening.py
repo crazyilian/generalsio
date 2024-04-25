@@ -1,4 +1,4 @@
-from logic.utils import GG, vert2tile, tile2vert, is_blocked_vert, bfs
+from logic.utils import GG, tile2vert, is_blocked_vert, bfs
 from . import openings_list
 from itertools import permutations
 import time
