@@ -61,7 +61,7 @@ def make_move(bot, gamemap):
         moves = moves[:5] if turn == 50 else moves[:10]
         GG.queue.extend_verts(moves, policy50=moves_queue.Policy50.TRY, to_left=True, validate=plump.validate)
 
-    if turn >= 300 + 150 * len(GG.captured_cities) and len(GG.queue) == 0 and not is_almost_finished_attack():
+    if turn >= 300 + 150 * len(GG.my_cities) and len(GG.queue) == 0 and not is_almost_finished_attack():
         moves = capture_city.get_capture_moves()
         if len(moves) > 0:
             print('----- CAPTURING CITY ----')
