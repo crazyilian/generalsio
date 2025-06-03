@@ -19,7 +19,7 @@ def calc_lazy(v, k, dp, tree, armies, dist, useless):
     ans = armies[v] - 1
     ansd = dist[v]
     anssm = (0,) * len(tree[v])
-    if len(tree) >= 1:
+    if len(tree[v]) >= 1:
         for sm in itertools.product(range(0, k), repeat=len(tree[v]) - 1):
             last = k - sum(sm) - 1
             if last < 0:

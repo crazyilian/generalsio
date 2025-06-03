@@ -1,5 +1,5 @@
 .idea/
 __pycache__/
 #base/
-bot*.py
+/bot*.py
 **/*.log
